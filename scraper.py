@@ -103,7 +103,8 @@ def vinted_session():
     }
     req = s.get("https://www.vinted.nl/")
     csrfToken = extract_csrf_token(req.text)
-    s.headers['X-CSRF-Token'] = csrfToken
+    if csrfToken:
+        s.headers['X-CSRF-Token'] = csrfToken
     return s
 
 # Function to download private messages from Vinted
@@ -156,7 +157,7 @@ def download_priv_msg(session_id, user_id):
 
                 from_user_id = message['entity']['user_id']
                 msg_id = message['entity']['id']
-                body = message['entity']['body']
+                body = message['entity'].get('body', '')
                 photo_list = []
                 for photo in message['entity']['photos']:
                     req = requests.get(photo['full_size_url'])
@@ -362,7 +363,14 @@ def download_vinted_data(userids, s):
                         if Images:
                             # If parameter -i download a maximum of n images
                             if args.maximum_images:
-                                count_img = int(args.maximum_images)
+                                try:
+                                    count_img = int(args.maximum_images)
+                                except ValueError:
+                                    logging.error("Invalid value for maximum_images: This argument needs to be a number")
+                                    continue
+                                if count_img <= 0:
+                                    logging.error("Maximum images must be greater than 0")
+                                    continue
                                 if count_img > len(img):
                                     count_img = len(img)
                             else:
@@ -409,7 +417,7 @@ def download_vinted_data(userids, s):
                 limit = round(int(r.headers['Retry-After']) / 2)
                 
                 for i in range(limit, 0, -1):
-                    logging.info(f"{i}", end="\r", flush=True)
+                    print(f"{i}", end="\r", flush=True)
                     time.sleep(1)
                 continue
         else:
@@ -526,10 +534,14 @@ def download_depop_data(userids):
         userid = userid.strip()
         # convert username to user id
         search_data = s.get(f"https://api.depop.com/api/v1/search/users/top/?q={userid}").json()
+        item = None
         for item in search_data['objects']:
             if item['username'] == userid:
                 print(f"User {userid} has userID {item['id']}")
                 break
+        if item is None:
+            print(f"User {userid} not found")
+            continue
         real_userid = item['id']
         slugs = []
         # Get userid from username
@@ -666,6 +678,9 @@ def download_depop_data(userids):
                 elif product_data.status_code == 404:
                     print("Product not found")
                     continue
+                else:
+                    print(f"Unexpected status code: {product_data.status_code}")
+                    continue
             except ValueError:
                 print("Error decoding JSON data. Skipping...")
                 continue
@@ -694,7 +709,7 @@ def download_depop_data(userids):
             except KeyError:
                 State = None
 
-            Price = product_data['price_amount'] + product_data['price_currency']
+            Price = f"{product_data['price_amount']} {product_data['price_currency']}"
             description = product_data['description']
             Sold = product_data['status']
             slug= product_data['slug']
