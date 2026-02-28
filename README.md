@@ -1,8 +1,6 @@
 # Vinted-Scraper
 This is a tool to download images and scrape data from Vinted & Depop and store it in a SQLite database.
 
--- *Currently working on [version 2.0](https://github.com/Gertje823/Vinted-Scraper/tree/v2)* (WIP) -- 
-
 ## How to use
 1. Download/clone this repo
 2. Download the dependencies using `pip install -r requirements.txt`

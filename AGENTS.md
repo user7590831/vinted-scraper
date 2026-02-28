@@ -43,6 +43,5 @@ python scraper.py [options]
 
 ## Notes
 
-- The project is currently in development on the `v2` branch
 - User IDs are stored in `users.txt`
 - Downloaded images are stored in `downloads/`
