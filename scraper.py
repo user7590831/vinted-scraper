@@ -8,9 +8,6 @@ import cloudscraper
 import re
 import logging
 
-# Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
 # ArgParse
 parser = argparse.ArgumentParser(description='Vinted & Depop Scraper/Downloader. Default downloads Vinted')
 
@@ -23,10 +20,15 @@ parser.add_argument('--disable-file-download','-n',dest='disable_file_download',
 parser.add_argument('--sold_items','-g',dest='sold_items', action='store_true', help='Also download sold items (depop)', required=False)
 parser.add_argument('--start_from','-b',dest='start_from', action='store', help='Begin from a specific item (depop)', required=False)
 parser.add_argument('--maximum_images','-i',dest='maximum_images', action='store', help='Set a maximum amount of image to download. 1 image by default (vinted)', required=False)
+parser.add_argument('--debug','-v',dest='debug', action='store_true', help='Enable debug logging', required=False)
 
 args = parser.parse_args()
 
-# Check if disable file download is used correctly
+# Configure logging and validate arguments
+if args.debug:
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+else:
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 if args.disable_file_download and not args.Depop:
     logging.error("-n only works with Depop. Use -n -d to disable filedownloads from Depop")
     exit(1)
@@ -184,10 +186,14 @@ def download_priv_msg(session_id, user_id):
 def get_all_items(s, USER_ID, total_pages, items):
     for page in range(int(total_pages)):
         page += 1
-        url = f'https://www.vinted.nl/api/v2/users/{USER_ID}/items?page={page}&per_page=200000'
+        url = f'https://www.vinted.nl/api/v2/wardrobe/{USER_ID}/items?page={page}&per_page=200000'
         r = s.get(url).json()
+        if 'pagination' not in r:
+            logging.warning(f"No pagination found on page {page}, skipping")
+            continue
         logging.info(f"Fetching page {page + 1}/{r['pagination']['total_pages']}")
-        items.extend(r['items'])
+        if 'items' in r:
+            items.extend(r['items'])
 
 # Function to download data from Vinted for a list of user IDs
 def download_vinted_data(userids, s):
@@ -286,21 +292,32 @@ def download_vinted_data(userids, s):
 
             # Fetch user items
             USER_ID = USER_ID.strip('\n')
-            url = f'https://www.vinted.nl/api/v2/users/{USER_ID}/items?page=1&per_page=200000'
+            url = f'https://www.vinted.nl/api/v2/wardrobe/{USER_ID}/items?page=1&per_page=200000'
             logging.info('ID=' + str(USER_ID))
 
             r = s.get(url)
             items = []
-            logging.info(f"Fetching page 1/{r.json()['pagination']['total_pages']}")
+            response_json = r.json()
+            logging.debug(f"API Response keys: {response_json.keys()}")
+
+            if 'pagination' not in response_json:
+                if response_json.get('code') == 104:
+                    logging.info(f"User {USER_ID} not found on Vinted (content deleted or does not exist)")
+                else:
+                    logging.warning(f"No pagination found for user {USER_ID}, response may be empty or in error format")
+                    logging.debug(f"Full response: {response_json}")
+                continue
+                
+            logging.info(f"Fetching page 1/{response_json['pagination']['total_pages']}")
             if r.status_code == 404:
                 print(f"User '{USER_ID}' not found")
                 continue
-            print(f"Fetching page 1/{r.json()['pagination']['total_pages']}")
-            items.extend(r.json()['items'])
+            print(f"Fetching page 1/{response_json['pagination']['total_pages']}")
+            items.extend(response_json['items'])
             
-            if r.json()['pagination']['total_pages'] > 1:
+            if response_json['pagination']['total_pages'] > 1:
                 logging.info(f"User has more than {len(items)} items. fetching next page....")
-                get_all_items(s, USER_ID, r.json()['pagination']['total_pages'], items)
+                get_all_items(s, USER_ID, response_json['pagination']['total_pages'], items)
             
             products = items
             logging.info(f"Total items: {len(products)}")
@@ -321,22 +338,25 @@ def download_vinted_data(userids, s):
                         logging.info(f"Successfully created the directory {path}")
 
                     for product in products:
+                        if args.debug and product == products[0]:
+                            logging.debug(f"Product keys: {product.keys()}")
+                        
                         img = product['photos']
                         ID = product['id']
                         User_id = product['user_id']
-                        Url = product['url']
-                        Favourite = product['favourite_count']
-                        description = product['description']
+                        Url = product.get('url', '')
+                        Favourite = product.get('favourite_count', 0)
+                        description = product.get('description', '')
                         Gender = product['user'].get('gender', None)
-                        Category = product['catalog_id']
-                        size = product['size']
-                        State = product['status']
-                        Brand = product['brand']
-                        Colors = product['color1']
-                        Price = product['price']
-                        Price = f"{Price['amount']} {Price['currency_code']}"
+                        Category = product.get('catalog_id', '')
+                        size = product.get('size', '')
+                        State = product.get('status', '')
+                        Brand = product.get('brand', '')
+                        Colors = product.get('color1', '')
+                        price_data = product.get('price', {})
+                        Price = f"{price_data.get('amount', 0)} {price_data.get('currency_code', '')}" if price_data else ''
                         Images = product['photos']
-                        title = product['title']
+                        title = product.get('title', '')
                         path = f"downloads/{User_id}/"
 
                         if Images:
