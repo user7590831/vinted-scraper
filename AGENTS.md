@@ -41,6 +41,15 @@ python scraper.py [options]
 - **File**: `data.sqlite`
 - **Tables**: Vinted Users, Vinted Products, Depop Users, Depop Products
 
+## Database Changes
+
+When modifying SQL statements (CREATE TABLE, INSERT, ALTER):
+- Ensure existing users with existing databases are not affected
+- If changes would break existing users, ask the user for one of:
+  1. Introduce migrations (add logic to alter tables on startup if needed)
+  2. Revert the changes
+  3. Continue with the changes (user accepts breaking change)
+
 ## Notes
 
 - User IDs are stored in `users.txt`
