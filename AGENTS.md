@@ -15,7 +15,7 @@ Vinted-Scraper is a Python tool to download images and scrape data from Vinted &
 
 - **Formatter**: Black
 - **Line length**: 88
-- **Target version**: Python 3.9+
+- **Target version**: Python 3.10+
 
 ## Running the Scraper
 
