@@ -138,10 +138,8 @@ c.execute(
              (Username, User_id UNIQUE, bio, first_name, followers, following, initials, items_sold, last_name, last_seen, Avatar, reviews_rating, reviews_total, verified, website)"""
 )
 
-c.execute(
-    """CREATE TABLE IF NOT EXISTS Vinted_Messages
-             (thread_id, from_user_id, to_user_id, msg_id, body, photos)"""
-)
+c.execute("""CREATE TABLE IF NOT EXISTS Vinted_Messages
+             (thread_id, from_user_id, to_user_id, msg_id, body, photos)""")
 
 conn.commit()
 
