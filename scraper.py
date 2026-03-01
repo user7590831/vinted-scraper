@@ -7,6 +7,10 @@ import cloudscraper
 import re
 import logging
 
+DOWNLOADS_DIR = "downloads"
+AVATARS_DIR = f"{DOWNLOADS_DIR}/Avatars/"
+MESSAGES_DIR = f"{DOWNLOADS_DIR}/Messages/"
+
 # ArgParse
 parser = argparse.ArgumentParser(
     description="Vinted & Depop Scraper/Downloader. Default downloads Vinted"
@@ -98,18 +102,17 @@ if args.disable_file_download and not args.Depop:
     exit(1)
 
 # Create downloads folders if they do not exist
-if not os.path.exists("downloads"):
-    os.makedirs("downloads")
+if not os.path.exists(DOWNLOADS_DIR):
+    os.makedirs(DOWNLOADS_DIR)
 
-directory_path = "downloads/Avatars/"
 try:
-    os.mkdir(directory_path)
-    logging.info(f"Directory created at {directory_path}")
+    os.mkdir(AVATARS_DIR)
+    logging.info(f"Directory created at {AVATARS_DIR}")
 except OSError as e:
-    if os.path.exists(directory_path):
-        logging.warning(f"Folder already exists at {directory_path}")
+    if os.path.exists(AVATARS_DIR):
+        logging.warning(f"Folder already exists at {AVATARS_DIR}")
     else:
-        logging.error(f"Creation of the directory failed at {directory_path}")
+        logging.error(f"Creation of the directory failed at {AVATARS_DIR}")
         logging.debug(f"Error: {e}")
 
 # Connect to SQLite database
@@ -125,7 +128,7 @@ c.execute(
 
 c.execute(
     """CREATE TABLE IF NOT EXISTS Depop_Data
-             (ID, User_id, Url, Sold, Gender, Category, subcategory, size, State, Brand, Colors, Price, Image, Description, Title, Platform, Address, discountedPriceAmount, dateUpdated)"""
+             (ID, User_id, Url, Sold, Gender, Category, subcategory, size, State, Brand, Colors, Price, Image, Description, Title, platform, Address, discountedPriceAmount, dateUpdated)"""
 )
 
 c.execute(
@@ -139,7 +142,7 @@ c.execute(
 )
 
 c.execute("""CREATE TABLE IF NOT EXISTS Vinted_Messages
-             (thread_id, from_user_id, to_user_id, msg_id, body, photos)""")
+             (thread_id, from_user_id, to_user_id, msg_thread_id, body, photos)""")
 
 conn.commit()
 
@@ -193,9 +196,9 @@ def vinted_session():
         "TE": "Trailers",
     }
     req = s.get("https://www.vinted.nl/")
-    csrfToken = extract_csrf_token(req.text)
-    if csrfToken:
-        s.headers["X-CSRF-Token"] = csrfToken
+    csrf_token = extract_csrf_token(req.text)
+    if csrf_token:
+        s.headers["X-CSRF-Token"] = csrf_token
     return s
 
 
@@ -221,21 +224,21 @@ def download_priv_msg(session_id, user_id):
         exit(1)
     data = data.json()
     try:
-        os.mkdir(f"downloads/Messages/")
+        os.mkdir(MESSAGES_DIR)
     except OSError:
-        if os.path.isdir(f"downloads/Messages/"):
+        if os.path.isdir(MESSAGES_DIR):
             logging.warning("Directory already exists")
         else:
             logging.error("Creation of the directory failed")
-    if not "msg_threads" in data:
+    if "msg_threads" not in data:
         logging.error(
             "Error: Can't find any messages.\nPlease make sure you entered the sessionid correctly"
         )
         exit(1)
     for msg_threads in data["msg_threads"]:
-        id = msg_threads["id"]
+        msg_thread_id = msg_threads["id"]
         msg_data = s.get(
-            f"https://www.vinted.nl/api/v2/users/{user_id}/msg_threads/{id}"
+            f"https://www.vinted.nl/api/v2/users/{user_id}/msg_threads/{msg_thread_id}"
         ).json()
 
         thread_id = msg_data["msg_thread"]["id"]
@@ -246,25 +249,23 @@ def download_priv_msg(session_id, user_id):
                 continue
             if len(photo_data) > 0:
                 try:
-                    os.mkdir(f"downloads/Messages/{message['entity']['user_id']}")
+                    os.mkdir(f"{MESSAGES_DIR}{message['entity']['user_id']}")
                 except OSError as e:
-                    if os.path.isdir(
-                        f"downloads/Messages/{message['entity']['user_id']}"
-                    ):
+                    if os.path.isdir(f"{MESSAGES_DIR}{message['entity']['user_id']}"):
                         logging.warning(
-                            f"Directory already exists: downloads/Messages/{message['entity']['user_id']}"
+                            f"Directory already exists: {MESSAGES_DIR}{message['entity']['user_id']}"
                         )
                     else:
                         logging.error(f"Creation of the directory failed: {e}")
 
                 from_user_id = message["entity"]["user_id"]
-                msg_id = message["entity"]["id"]
+                msg_thread_id = message["entity"]["id"]
                 body = message["entity"].get("body", "")
                 photo_list = []
                 for photo in message["entity"]["photos"]:
                     req = requests.get(photo["full_size_url"])
 
-                    filepath = f"downloads/Messages/{from_user_id}/{photo['id']}.jpeg"
+                    filepath = f"{MESSAGES_DIR}{from_user_id}/{photo['id']}.jpeg"
                     photo_list.append(filepath)
                     if not os.path.isfile(filepath):
                         logging.info(f"Downloading photo ID: {photo['id']}")
@@ -283,22 +284,22 @@ def download_priv_msg(session_id, user_id):
                     thread_id,
                     from_user_id,
                     to_user_id,
-                    msg_id,
+                    msg_thread_id,
                     body,
                     str(photo_list),
                 )
                 c.execute(
-                    "INSERT INTO Vinted_Messages(thread_id, from_user_id, to_user_id, msg_id, body, photos)VALUES (?,?,?,?,?,?)",
+                    "INSERT INTO Vinted_Messages(thread_id, from_user_id, to_user_id, msg_thread_id, body, photos)VALUES (?,?,?,?,?,?)",
                     params,
                 )
                 conn.commit()
 
 
 # Function to get all items from a user on Vinted
-def get_all_items(s, USER_ID, total_pages, items):
+def get_all_items(s, user_id, total_pages, items):
     for page in range(int(total_pages)):
         page += 1
-        url = f"https://www.vinted.nl/api/v2/wardrobe/{USER_ID}/items?page={page}&per_page=200000"
+        url = f"https://www.vinted.nl/api/v2/wardrobe/{user_id}/items?page={page}&per_page=200000"
         r = s.get(url).json()
         if "pagination" not in r:
             logging.warning(f"No pagination found on page {page}, skipping")
@@ -320,12 +321,12 @@ def download_vinted_data(userids, s):
     Returns:
         None
     """
-    Platform = "Vinted"
-    for USER_ID in userids:
-        USER_ID = USER_ID.strip()
+    platform = "Vinted"
+    for user_id in userids:
+        user_id = user_id.strip()
 
         # Get user profile data
-        url = f"https://www.vinted.nl/api/v2/users/{USER_ID}"
+        url = f"https://www.vinted.nl/api/v2/users/{user_id}"
         r = s.get(url)
 
         if r.status_code == 200:
@@ -371,17 +372,17 @@ def download_vinted_data(userids, s):
                 photo_id = data["photo"]["id"]
 
                 try:
-                    os.mkdir("downloads/Avatars/")
-                    logging.info("Directory created at downloads/Avatars/")
+                    os.mkdir(AVATARS_DIR)
+                    logging.info(f"Directory created at {AVATARS_DIR}")
                 except OSError as e:
-                    if os.path.exists("downloads/Avatars/"):
-                        logging.warning("Folder already exists at downloads/Avatars/")
+                    if os.path.exists(AVATARS_DIR):
+                        logging.warning(f"Folder already exists at {AVATARS_DIR}")
                     else:
                         logging.error("Creation of the directory failed")
                         logging.debug(f"Error: {e}")
 
                 req = requests.get(photo)
-                filepath = f"downloads/Avatars/{photo_id}.jpeg"
+                filepath = f"{AVATARS_DIR}{photo_id}.jpeg"
 
                 if not os.path.isfile(filepath):
                     with open(filepath, "wb") as f:
@@ -397,7 +398,7 @@ def download_vinted_data(userids, s):
             # Save user data to database
             params = (
                 username,
-                USER_ID,
+                user_id,
                 gender,
                 given_item_count,
                 taken_item_count,
@@ -428,9 +429,9 @@ def download_vinted_data(userids, s):
             conn.commit()
 
             # Fetch user items
-            USER_ID = USER_ID.strip("\n")
-            url = f"https://www.vinted.nl/api/v2/wardrobe/{USER_ID}/items?page=1&per_page=200000"
-            logging.info("ID=" + str(USER_ID))
+            user_id = user_id.strip("\n")
+            url = f"https://www.vinted.nl/api/v2/wardrobe/{user_id}/items?page=1&per_page=200000"
+            logging.info("ID=" + str(user_id))
 
             r = s.get(url)
             items = []
@@ -440,11 +441,11 @@ def download_vinted_data(userids, s):
             if "pagination" not in response_json:
                 if response_json.get("code") == 104:
                     logging.info(
-                        f"User {USER_ID} not found on Vinted (content deleted or does not exist)"
+                        f"User {user_id} not found on Vinted (content deleted or does not exist)"
                     )
                 else:
                     logging.warning(
-                        f"No pagination found for user {USER_ID}, response may be empty or in error format"
+                        f"No pagination found for user {user_id}, response may be empty or in error format"
                     )
                     logging.debug(f"Full response: {response_json}")
                 continue
@@ -453,7 +454,7 @@ def download_vinted_data(userids, s):
                 f"Fetching page 1/{response_json['pagination']['total_pages']}"
             )
             if r.status_code == 404:
-                logging.warning(f"User '{USER_ID}' not found")
+                logging.warning(f"User '{user_id}' not found")
                 continue
             items.extend(response_json["items"])
 
@@ -462,7 +463,7 @@ def download_vinted_data(userids, s):
                     f"User has more than {len(items)} items. fetching next page...."
                 )
                 get_all_items(
-                    s, USER_ID, response_json["pagination"]["total_pages"], items
+                    s, user_id, response_json["pagination"]["total_pages"], items
                 )
 
             products = items
@@ -471,7 +472,7 @@ def download_vinted_data(userids, s):
             if r.status_code == 200:
                 if products:
                     # Download all products
-                    path = f"downloads/{USER_ID}/"
+                    path = f"{DOWNLOADS_DIR}/{user_id}/"
 
                     try:
                         os.mkdir(path)
@@ -490,28 +491,28 @@ def download_vinted_data(userids, s):
                             logging.debug(f"Product keys: {product.keys()}")
 
                         img = product["photos"]
-                        ID = product["id"]
-                        User_id = product["user_id"]
-                        Url = product.get("url", "")
-                        Favourite = product.get("favourite_count", 0)
+                        item_id = product["id"]
+                        user_id = product["user_id"]
+                        url = product.get("url", "")
+                        favourite = product.get("favourite_count", 0)
                         description = product.get("description", "")
-                        Gender = product["user"].get("gender", None)
-                        Category = product.get("catalog_id", "")
+                        gender = product["user"].get("gender", None)
+                        category = product.get("catalog_id", "")
                         size = product.get("size", "")
-                        State = product.get("status", "")
-                        Brand = product.get("brand", "")
-                        Colors = product.get("color1", "")
+                        state = product.get("status", "")
+                        brand = product.get("brand", "")
+                        colors = product.get("color1", "")
                         price_data = product.get("price", {})
-                        Price = (
+                        price = (
                             f"{price_data.get('amount', 0)} {price_data.get('currency_code', '')}"
                             if price_data
                             else ""
                         )
-                        Images = product["photos"]
+                        images = product["photos"]
                         title = product.get("title", "")
-                        path = f"downloads/{User_id}/"
+                        path = f"{DOWNLOADS_DIR}/{user_id}/"
 
-                        if Images:
+                        if images:
                             # If parameter -i download a maximum of n images
                             if args.maximum_images:
                                 try:
@@ -531,29 +532,29 @@ def download_vinted_data(userids, s):
                             else:
                                 count_img = len(img)
 
-                            for image in Images[:count_img]:
+                            for image in images[:count_img]:
                                 full_size_url = image["full_size_url"]
                                 img_name = image["high_resolution"]["id"]
-                                filepath = f"downloads/{USER_ID}/{img_name}.jpeg"
+                                filepath = f"{DOWNLOADS_DIR}/{user_id}/{img_name}.jpeg"
 
                                 if not os.path.isfile(filepath):
                                     req = requests.get(full_size_url)
                                     params = (
-                                        ID,
-                                        User_id,
-                                        Url,
-                                        Favourite,
-                                        Gender,
-                                        Category,
+                                        item_id,
+                                        user_id,
+                                        url,
+                                        favourite,
+                                        gender,
+                                        category,
                                         size,
-                                        State,
-                                        Brand,
-                                        Colors,
-                                        Price,
+                                        state,
+                                        brand,
+                                        colors,
+                                        price,
                                         filepath,
                                         description,
                                         title,
-                                        Platform,
+                                        platform,
                                     )
 
                                     try:
@@ -588,7 +589,7 @@ def download_vinted_data(userids, s):
                     time.sleep(1)
                 continue
         else:
-            logging.info(f"User {USER_ID} does not exist")
+            logging.info(f"User {user_id} does not exist")
 
     conn.close()
 
@@ -642,7 +643,7 @@ def get_all_depop_items(
 
 
 def download_depop_data(userids):
-    Platform = "Depop"
+    platform = "Depop"
     headers = {"referer": "https://www.depop.com/"}
     s = cloudscraper.create_scraper(
         browser={"browser": "firefox", "platform": "windows", "desktop": True}
@@ -663,12 +664,11 @@ def download_depop_data(userids):
             logging.warning(f"User {userid} not found")
             continue
         real_userid = item["id"]
-        slugs = []
         url = f"https://api.depop.com/api/v1/users/{real_userid}/"
         logging.debug(url)
         data = s.get(url).json()
 
-        id = str(data["id"])
+        item_id = str(data["id"])
 
         last_seen = data.get("last_seen")
         bio = data.get("bio")
@@ -688,9 +688,9 @@ def download_depop_data(userids):
         if data.get("picture_data"):
             photo = data["picture_data"]["formats"]["U0"]["url"]
             logging.debug(photo)
-            ensure_directory("downloads/Avatars/")
+            ensure_directory(AVATARS_DIR)
             req = s.get(photo)
-            filepath = f"downloads/Avatars/{id}.jpeg"
+            filepath = f"{AVATARS_DIR}{item_id}.jpeg"
             if not os.path.isfile(filepath):
                 with open(filepath, "wb") as f:
                     f.write(req.content)
@@ -761,7 +761,7 @@ def download_depop_data(userids):
 
         logging.info("Got all products. Starting download...")
         logging.info(f"Total products: {len(product_ids)}")
-        path = "downloads/" + str(userid) + "/"
+        path = DOWNLOADS_DIR + "/" + str(userid) + "/"
         ensure_directory(path)
 
         for product_id_ in product_ids:
@@ -791,34 +791,36 @@ def download_depop_data(userids):
                 continue
             # print(json.dumps(product_data, indent=4))
             product_id = product_data["id"]
-            Gender = product_data.get("gender")
+            gender = product_data.get("gender")
             try:
-                Category = product_data["group"]
+                category = product_data["group"]
             except KeyError:
-                Category = product_data.get("categoryId")
+                category = product_data.get("categoryId")
             subcategory = product_data.get("productType")
             address = product_data.get("address")
-            dateUpdated = product_data.get("pub_date")
-            State = product_data.get("condition")
+            date_updated = product_data.get("pub_date")
+            state = product_data.get("condition")
 
-            Price = f"{product_data['price_amount']} {product_data['price_currency']}"
+            price = f"{product_data['price_amount']} {product_data['price_currency']}"
             description = product_data["description"]
-            Sold = product_data["status"]
+            sold = product_data["status"]
             slug = product_data["slug"]
             title = slug.replace("-", " ")
 
-            Colors = product_data.get("colour", [])
-            discountedPriceAmount = product_data.get("price", {}).get(
+            colors = product_data.get("colour", [])
+            discounted_price_amount = product_data.get("price", {}).get(
                 "discountedPriceAmount"
             )
-            Brand = product_data.get("brand")
+            brand = product_data.get("brand")
             sizes = [size["name"] for size in product_data.get("sizes", [])]
 
             for images in product_data["pictures_data"]:
                 full_size_url = images["formats"]["P0"]["url"]
                 img_name = images["id"]
 
-                filepath = "downloads/" + str(userid) + "/" + str(img_name) + ".jpg"
+                filepath = (
+                    DOWNLOADS_DIR + "/" + str(userid) + "/" + str(img_name) + ".jpg"
+                )
                 if not args.disable_file_download:
                     if not os.path.isfile(filepath):
                         c.execute(f"SELECT ID FROM Depop_Data WHERE ID = {product_id}")
@@ -838,26 +840,26 @@ def download_depop_data(userids):
                             req = requests.get(full_size_url)
                             params = (
                                 product_id,
-                                id,
-                                Sold,
-                                Gender,
-                                Category,
+                                userid,
+                                sold,
+                                gender,
+                                category,
                                 subcategory,
                                 ",".join(sizes),
-                                State,
-                                Brand,
-                                ",".join(Colors),
-                                Price,
+                                state,
+                                brand,
+                                ",".join(colors),
+                                price,
                                 filepath,
                                 description,
                                 title,
-                                Platform,
+                                platform,
                                 address,
-                                discountedPriceAmount,
-                                dateUpdated,
+                                discounted_price_amount,
+                                date_updated,
                             )
                             c.execute(
-                                "INSERT OR IGNORE INTO Depop_Data(ID, User_id, Sold, Gender, Category, subcategory, size, State, Brand, Colors, Price, Image, Description, Title, Platform, Address, discountedPriceAmount, dateUpdated)VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                                "INSERT OR IGNORE INTO Depop_Data(ID, User_id, Sold, Gender, Category, subcategory, size, State, Brand, Colors, Price, Image, Description, Title, platform, Address, discountedPriceAmount, dateUpdated)VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                                 params,
                             )
                             conn.commit()
@@ -875,25 +877,25 @@ def download_depop_data(userids):
                     else:
                         params = (
                             product_id,
-                            Sold,
-                            id,
-                            Gender,
-                            Category,
+                            sold,
+                            userid,
+                            gender,
+                            category,
                             subcategory,
                             ",".join(sizes),
-                            State,
-                            Brand,
-                            ",".join(Colors),
-                            Price,
+                            state,
+                            brand,
+                            ",".join(colors),
+                            price,
                             description,
                             title,
-                            Platform,
+                            platform,
                             address,
-                            discountedPriceAmount,
-                            dateUpdated,
+                            discounted_price_amount,
+                            date_updated,
                         )
                         c.execute(
-                            "INSERT OR IGNORE INTO Depop_Data(ID, Sold, User_id, Gender, Category, subcategory, size, State, Brand, Colors, Price, description, title, Platform, Address, discountedPriceAmount, dateUpdated)VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                            "INSERT OR IGNORE INTO Depop_Data(ID, Sold, User_id, Gender, Category, subcategory, size, State, Brand, Colors, Price, description, title, platform, Address, discountedPriceAmount, dateUpdated)VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                             params,
                         )
                         conn.commit()
@@ -904,32 +906,34 @@ def download_depop_data(userids):
                         if source["format"] == "MP4":
                             video_url = source["url"]
                             file_name = video_url.split("/")[5]
-                            filepath = "downloads/" + str(userid) + "/" + str(file_name)
+                            filepath = (
+                                DOWNLOADS_DIR + "/" + str(userid) + "/" + str(file_name)
+                            )
                             if not args.disable_file_download:
                                 if not os.path.isfile(filepath):
                                     req = requests.get(video_url)
                                     params = (
                                         product_id,
-                                        Sold,
-                                        id,
-                                        Gender,
-                                        Category,
+                                        sold,
+                                        userid,
+                                        gender,
+                                        category,
                                         subcategory,
                                         ",".join(sizes),
-                                        State,
-                                        Brand,
-                                        ",".join(Colors),
-                                        Price,
+                                        state,
+                                        brand,
+                                        ",".join(colors),
+                                        price,
                                         filepath,
-                                        Platform,
+                                        platform,
                                         address,
-                                        discountedPriceAmount,
+                                        discounted_price_amount,
                                         description,
                                         title,
-                                        dateUpdated,
+                                        date_updated,
                                     )
                                     c.execute(
-                                        "INSERT OR IGNORE INTO Depop_Data(ID, Sold, User_id, Gender, Category, subcategory, size, State, Brand, Colors, Price, Image, description, title, Platform, Address, discountedPriceAmount, dateUpdated)VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                                        "INSERT OR IGNORE INTO Depop_Data(ID, Sold, User_id, Gender, Category, subcategory, size, State, Brand, Colors, Price, Image, description, title, platform, Address, discountedPriceAmount, dateUpdated)VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                                         params,
                                     )
                                     conn.commit()
@@ -946,25 +950,25 @@ def download_depop_data(userids):
                                 if not result:
                                     params = (
                                         product_id,
-                                        Sold,
-                                        id,
-                                        Gender,
-                                        Category,
+                                        sold,
+                                        userid,
+                                        gender,
+                                        category,
                                         subcategory,
                                         ",".join(sizes),
-                                        State,
-                                        Brand,
-                                        ",".join(Colors),
-                                        Price,
+                                        state,
+                                        brand,
+                                        ",".join(colors),
+                                        price,
                                         description,
                                         title,
-                                        Platform,
+                                        platform,
                                         address,
-                                        discountedPriceAmount,
-                                        dateUpdated,
+                                        discounted_price_amount,
+                                        date_updated,
                                     )
                                     c.execute(
-                                        "INSERT OR IGNORE INTO Depop_Data(ID, Sold, User_id, Gender, Category, subcategory, size, State, Brand, Colors, Price, description, title, Platform, Address, discountedPriceAmount, dateUpdated)VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                                        "INSERT OR IGNORE INTO Depop_Data(ID, Sold, User_id, Gender, Category, subcategory, size, State, Brand, Colors, Price, description, title, platform, Address, discountedPriceAmount, dateUpdated)VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                                         params,
                                     )
                                     conn.commit()
