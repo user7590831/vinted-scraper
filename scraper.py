@@ -142,7 +142,7 @@ c.execute(
 )
 
 c.execute("""CREATE TABLE IF NOT EXISTS Vinted_Messages
-             (thread_id, from_user_id, to_user_id, msg_thread_id, body, photos)""")
+             (thread_id, from_user_id, to_user_id, msg_id, body, photos)""")
 
 conn.commit()
 
@@ -236,9 +236,9 @@ def download_priv_msg(session_id, user_id):
         )
         exit(1)
     for msg_threads in data["msg_threads"]:
-        msg_thread_id = msg_threads["id"]
+        msg_id = msg_threads["id"]
         msg_data = s.get(
-            f"https://www.vinted.nl/api/v2/users/{user_id}/msg_threads/{msg_thread_id}"
+            f"https://www.vinted.nl/api/v2/users/{user_id}/msg_threads/{msg_id}"
         ).json()
 
         thread_id = msg_data["msg_thread"]["id"]
@@ -259,7 +259,7 @@ def download_priv_msg(session_id, user_id):
                         logging.error(f"Creation of the directory failed: {e}")
 
                 from_user_id = message["entity"]["user_id"]
-                msg_thread_id = message["entity"]["id"]
+                msg_id = message["entity"]["id"]
                 body = message["entity"].get("body", "")
                 photo_list = []
                 for photo in message["entity"]["photos"]:
@@ -284,12 +284,12 @@ def download_priv_msg(session_id, user_id):
                     thread_id,
                     from_user_id,
                     to_user_id,
-                    msg_thread_id,
+                    msg_id,
                     body,
                     str(photo_list),
                 )
                 c.execute(
-                    "INSERT INTO Vinted_Messages(thread_id, from_user_id, to_user_id, msg_thread_id, body, photos)VALUES (?,?,?,?,?,?)",
+                    "INSERT INTO Vinted_Messages(thread_id, from_user_id, to_user_id, msg_id, body, photos)VALUES (?,?,?,?,?,?)",
                     params,
                 )
                 conn.commit()
